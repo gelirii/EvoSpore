@@ -1,0 +1,17 @@
+name: EvoSpore 100k probe
+on:
+  push:
+    branches: [analysis/100k-probe]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npx tsx tests/probe100k.ts
