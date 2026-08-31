@@ -85,6 +85,68 @@ export interface CreatureCheckpoint {
   brain: BrainCheckpoint;
 }
 
+export type FossilCategory =
+  | 'highestGeneration'
+  | 'oldest'
+  | 'mostChildren'
+  | 'largestBody'
+  | 'smallestBody'
+  | 'mostVertebrae'
+  | 'mostParts'
+  | 'mostCarnivorous'
+  | 'mostHerbivorous'
+  | 'mostEfficient'
+  | 'mostLamarckian'
+  | 'mostLearned'
+  | 'mostSpikes'
+  | 'mostStingers'
+  | 'mostEyes'
+  | 'mostFins';
+
+export interface PartCounts {
+  mouth: number;
+  flagellum: number;
+  tail: number;
+  fin: number;
+  eye: number;
+  chemo: number;
+  spike: number;
+  stinger: number;
+}
+
+export interface FossilRecordEntry {
+  key: FossilCategory;
+  name: string;
+  title: string;
+  description: string;
+  score: number;
+  displayValue: number;
+  recordedAt: number;
+  creature: CreatureCheckpoint;
+}
+
+export interface FossilRecordSummary {
+  key: FossilCategory;
+  name: string;
+  title: string;
+  description: string;
+  displayValue: number;
+  recordedAt: number;
+  id: number;
+  generation: number;
+  age: number;
+  children: number;
+  vertebrae: number;
+  size: number;
+  diet: number;
+  basalEfficiency: number;
+  totalParts: number;
+  learnedMagnitude: number;
+  lamarckFraction: number;
+  partCounts: PartCounts;
+  innovations: string[];
+}
+
 export interface Food {
   id: number;
   x: number;
@@ -122,6 +184,7 @@ export interface WorldCheckpoint {
   carcasses: Carcass[];
   events: HistoricalEvent[];
   selectedId: number | null;
+  fossilRecords?: FossilRecordEntry[];
 }
 
 export interface RenderPart {
