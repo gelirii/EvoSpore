@@ -1,0 +1,48 @@
+name: Eight-world million-step diversity test
+
+on:
+  push:
+    branches: [v0.2-fossil-record]
+    paths: [.github/workflows/multiseed.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evolve:
+    name: World ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        include:
+          - label: A
+            seed: 3735928559
+          - label: B
+            seed: 12648430
+          - label: C
+            seed: 195948557
+          - label: D
+            seed: 305419896
+          - label: E
+            seed: 4277009102
+          - label: F
+            seed: 324508639
+          - label: G
+            seed: 610839776
+          - label: H
+            seed: 2718281828
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - name: Evolve one million steps
+        env:
+          WORLD_LABEL: ${{ matrix.label }}
+          SEED: ${{ matrix.seed }}
+        run: npx tsx tests/multiseed.ts
