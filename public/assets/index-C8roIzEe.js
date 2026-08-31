@@ -1,0 +1,1 @@
+(function(){try{var u=new URL(window.location.href);if(u.searchParams.get('evospore')!=='v02'){u.searchParams.set('evospore','v02');u.searchParams.set('_reload',Date.now().toString(36));window.location.replace(u.toString());}else{window.location.reload();}}catch(e){window.location.reload();}})();
