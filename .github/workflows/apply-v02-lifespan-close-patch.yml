@@ -19,8 +19,8 @@ jobs:
         with:
           node-version: 22
       - name: Apply targeted v0.2 fixes
-        shell: python
         run: |
+          python - <<'PY'
           from pathlib import Path
 
           def replace_once(path, old, new):
@@ -90,6 +90,7 @@ fossilOverlay.addEventListener('click', (event) => { if (event.target === fossil
 """
           if '#fossil-close{min-width:84px' not in css:
               styles.write_text(css.rstrip() + '\n' + extra.lstrip())
+          PY
       - run: npm install --no-audit --no-fund
       - name: Run full v0.2 gate
         run: npm run build
