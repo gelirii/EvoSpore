@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   base: './',
   build: {
-    target: 'es2022',
+    target: 'es2020',
     sourcemap: true,
   },
 });
