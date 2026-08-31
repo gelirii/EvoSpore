@@ -45,6 +45,7 @@ interface Creature {
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const TAU = Math.PI * 2;
+const MAX_AGE = 1000;
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= TAU;
@@ -465,7 +466,7 @@ export class World {
     for (const parent of this.creatures) {
       parent.age += SIM_DT;
       parent.stingerCooldown = Math.max(0, parent.stingerCooldown - SIM_DT);
-      if (parent.health <= 0 || parent.energy <= 0 || parent.age > 900) continue;
+      if (parent.health <= 0 || parent.energy <= 0 || parent.age >= MAX_AGE) continue;
 
       if (parent.age >= 18 && parent.energy >= 150 && this.creatures.length + newborns.length < MAX_POPULATION) {
         const childGenome = mutateGenome(parent.genome, parent.brain.fastSelf, parent.brain.fastMsg, this.rng);
@@ -490,7 +491,7 @@ export class World {
 
     const survivors: Creature[] = [];
     for (const creature of this.creatures) {
-      if (creature.health > 0 && creature.energy > 0 && creature.age <= 900) {
+      if (creature.health > 0 && creature.energy > 0 && creature.age < MAX_AGE) {
         survivors.push(creature);
         continue;
       }

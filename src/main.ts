@@ -242,9 +242,36 @@ saveButton.addEventListener('click', () => {
   setSaveButtonState('saving');
   post({ type: 'requestCheckpoint', reason: 'manual' });
 });
-fossilButton.addEventListener('click', () => { renderFossils(); fossilOverlay.classList.remove('hidden'); });
-fossilClose.addEventListener('click', () => fossilOverlay.classList.add('hidden'));
-fossilOverlay.addEventListener('click', (event) => { if (event.target === fossilOverlay) fossilOverlay.classList.add('hidden'); });
+let fossilCloseTimer = 0;
+function closeFossilRecord(): void {
+  window.clearTimeout(fossilCloseTimer);
+  fossilClose.classList.add('pressed');
+  fossilClose.textContent = 'Closing…';
+  fossilOverlay.classList.add('closing');
+  fossilCloseTimer = window.setTimeout(() => {
+    fossilOverlay.classList.add('hidden');
+    fossilOverlay.classList.remove('closing');
+    fossilClose.classList.remove('pressed');
+    fossilClose.textContent = 'Close';
+  }, 110);
+}
+function openFossilRecord(): void {
+  window.clearTimeout(fossilCloseTimer);
+  fossilOverlay.classList.remove('closing', 'hidden');
+  fossilClose.classList.remove('pressed');
+  fossilClose.textContent = 'Close';
+  renderFossils();
+}
+fossilButton.addEventListener('click', openFossilRecord);
+fossilClose.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  closeFossilRecord();
+});
+fossilClose.addEventListener('click', (event) => {
+  event.preventDefault();
+  if (!fossilOverlay.classList.contains('hidden') && !fossilOverlay.classList.contains('closing')) closeFossilRecord();
+});
+fossilOverlay.addEventListener('click', (event) => { if (event.target === fossilOverlay) closeFossilRecord(); });
 fossilGrid.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-fossil]');
   if (!button) return;
