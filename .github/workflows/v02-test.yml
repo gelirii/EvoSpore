@@ -2,11 +2,11 @@ name: Test EvoSpore v0.2 branch
 
 on:
   push:
-    branches: [v0.2-fossil-record, v0.2-safari-save-fix]
+    branches: [v0.2-fossil-record, v0.2-safari-save-fix, v0.2-lifespan-fossil-close-fix]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -16,5 +16,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Apply pending lifespan/close patch when present
+        run: |
+          if [ -f scripts/apply_v02_lifespan_close_patch.py ]; then
+            python scripts/apply_v02_lifespan_close_patch.py
+          fi
       - run: npm install --no-audit --no-fund
       - run: npm run build
+      - name: Commit tested patch
+        if: github.ref_name == 'v0.2-lifespan-fossil-close-fix'
+        run: |
+          if ! git diff --quiet -- src/sim/world.ts src/main.ts src/styles.css; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/sim/world.ts src/main.ts src/styles.css
+            git commit -m "Polish v0.2 lifespan and fossil close control"
+            git push origin HEAD:v0.2-lifespan-fossil-close-fix
+          fi
