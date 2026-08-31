@@ -1,7 +1,7 @@
 import './styles.css';
 import { PondRenderer } from './render';
 import type { MainToWorker, SpeedMode, WorkerToMain } from './protocol';
-import type { CreatureRenderState, FossilCategory, FossilRecordSummary, WorldSnapshot } from './sim/types';
+import type { CreatureRenderState, FossilCategory, FossilRecordSummary, WorldCheckpoint, WorldSnapshot } from './sim/types';
 import { clearCheckpoint, loadCheckpoint, requestPersistentStorage, saveCheckpoint } from './storage';
 
 const app = document.querySelector<HTMLDivElement>('#app');
@@ -37,7 +37,7 @@ app.innerHTML = `
       </div>
     </main>
     <footer class="footer">
-      <button id="save" type="button">Save</button>
+      <button id="save" type="button" aria-live="polite">Save</button>
       <button id="fossils" type="button">Fossil record</button>
       <button id="reset" class="danger" type="button">Reset world</button>
       <div class="status" id="status">Starting worker…</div>
@@ -62,14 +62,62 @@ const worker = new Worker(new URL('./worker.ts', import.meta.url), { type: 'modu
 let snapshot: WorldSnapshot | null = null;
 let fossils: FossilRecordSummary[] = [];
 let selectedId: number | null = null;
-let saveInFlight = false;
 let toastTimer = 0;
+let saveButtonTimer = 0;
+let saveQueue: Promise<void> = Promise.resolve();
 
 const post = (message: MainToWorker): void => worker.postMessage(message);
 
 function showToast(text: string): void {
-  toastEl.textContent = text; toastEl.classList.add('show'); window.clearTimeout(toastTimer);
+  toastEl.textContent = text;
+  toastEl.classList.add('show');
+  window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toastEl.classList.remove('show'), 3200);
+}
+
+function setSaveButtonState(state: 'idle' | 'saving' | 'saved' | 'error'): void {
+  window.clearTimeout(saveButtonTimer);
+  saveButton.classList.remove('saving', 'saved', 'save-error');
+  saveButton.removeAttribute('aria-busy');
+  if (state === 'saving') {
+    saveButton.textContent = 'Saving…';
+    saveButton.classList.add('saving');
+    saveButton.disabled = true;
+    saveButton.setAttribute('aria-busy', 'true');
+  } else if (state === 'saved') {
+    saveButton.textContent = 'Saved ✓';
+    saveButton.classList.add('saved');
+    saveButton.disabled = true;
+    saveButtonTimer = window.setTimeout(() => setSaveButtonState('idle'), 1300);
+  } else if (state === 'error') {
+    saveButton.textContent = 'Save failed';
+    saveButton.classList.add('save-error');
+    saveButton.disabled = false;
+    saveButtonTimer = window.setTimeout(() => setSaveButtonState('idle'), 2200);
+  } else {
+    saveButton.textContent = 'Save';
+    saveButton.disabled = false;
+  }
+}
+
+function queueCheckpointSave(checkpoint: WorldCheckpoint, reason: 'manual' | 'hidden' | 'autosave'): void {
+  const manual = reason === 'manual';
+  saveQueue = saveQueue
+    .catch(() => undefined)
+    .then(async () => {
+      try {
+        await saveCheckpoint(checkpoint);
+        if (manual) {
+          setSaveButtonState('saved');
+          showToast('Saved.');
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        if (manual) setSaveButtonState('error');
+        showToast(`Save failed: ${detail}`);
+        throw error;
+      }
+    });
 }
 
 function setSpeed(mode: SpeedMode): void {
@@ -154,34 +202,46 @@ function renderFossils(): void {
 }
 
 const renderer = new PondRenderer(canvas, (id) => {
-  selectedId = id; post({ type: 'selectCreature', id });
+  selectedId = id;
+  post({ type: 'selectCreature', id });
   if (snapshot) updateInspector(id === null ? null : snapshot.creatures.find((item) => item.id === id) ?? null);
 });
 
-worker.onmessage = async (event: MessageEvent<WorkerToMain>) => {
+worker.onmessage = (event: MessageEvent<WorkerToMain>) => {
   const message = event.data;
   if (message.type === 'ready') statusEl.textContent = 'Pond online.';
   else if (message.type === 'snapshot') {
-    snapshot = message.snapshot; fossils = message.fossils; renderer.setSnapshot(message.snapshot); updateStats(message.snapshot);
+    snapshot = message.snapshot;
+    fossils = message.fossils;
+    renderer.setSnapshot(message.snapshot);
+    updateStats(message.snapshot);
     if (!fossilOverlay.classList.contains('hidden')) renderFossils();
     if (selectedId !== null) updateInspector(message.snapshot.creatures.find((c) => c.id === selectedId) ?? null);
   } else if (message.type === 'checkpoint') {
-    if (saveInFlight) return; saveInFlight = true;
-    try { await saveCheckpoint(message.checkpoint); if (message.reason === 'manual') showToast('World checkpoint and fossil record saved.'); }
-    catch (error) { showToast(`Save failed: ${error instanceof Error ? error.message : String(error)}`); }
-    finally { saveInFlight = false; }
+    queueCheckpointSave(message.checkpoint, message.reason);
   } else if (message.type === 'historicalEvent') showToast(message.message);
   else if (message.type === 'fossilSpawned') {
     selectedId = message.creatureId;
     showToast(`${message.name} has been resurrected. This seems responsible.`);
     fossilOverlay.classList.add('hidden');
-  } else if (message.type === 'error') { showToast(`Simulation paused: ${message.message}`); setSpeed('paused'); }
+  } else if (message.type === 'error') {
+    showToast(`Simulation paused: ${message.message}`);
+    setSpeed('paused');
+  }
 };
 
-worker.onerror = (event) => { showToast(`Worker error: ${event.message}`); statusEl.textContent = 'Worker failed.'; };
+worker.onerror = (event) => {
+  showToast(`Worker error: ${event.message}`);
+  statusEl.textContent = 'Worker failed.';
+};
+
 speedButtons.forEach((button) => button.addEventListener('click', () => setSpeed(button.dataset.speed as SpeedMode)));
 thermalEl.addEventListener('change', () => post({ type: 'setThermalSafe', enabled: thermalEl.checked }));
-saveButton.addEventListener('click', () => post({ type: 'requestCheckpoint', reason: 'manual' }));
+saveButton.addEventListener('click', () => {
+  if (saveButton.disabled) return;
+  setSaveButtonState('saving');
+  post({ type: 'requestCheckpoint', reason: 'manual' });
+});
 fossilButton.addEventListener('click', () => { renderFossils(); fossilOverlay.classList.remove('hidden'); });
 fossilClose.addEventListener('click', () => fossilOverlay.classList.add('hidden'));
 fossilOverlay.addEventListener('click', (event) => { if (event.target === fossilOverlay) fossilOverlay.classList.add('hidden'); });
@@ -192,7 +252,12 @@ fossilGrid.addEventListener('click', (event) => {
 });
 resetButton.addEventListener('click', async () => {
   if (!confirm('Reset this evolutionary world? The current autosave and fossil record will be deleted.')) return;
-  await clearCheckpoint().catch(() => undefined); selectedId = null; fossils = []; updateInspector(null); post({ type: 'resetWorld' }); showToast('New founder world created. The museum has been swept clean.');
+  await clearCheckpoint().catch(() => undefined);
+  selectedId = null;
+  fossils = [];
+  updateInspector(null);
+  post({ type: 'resetWorld' });
+  showToast('New founder world created. The museum has been swept clean.');
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden) post({ type: 'requestCheckpoint', reason: 'hidden' }); });
 window.setInterval(() => { if (!document.hidden) post({ type: 'requestCheckpoint', reason: 'autosave' }); }, 60_000);
@@ -201,9 +266,15 @@ async function boot(): Promise<void> {
   void requestPersistentStorage();
   try {
     const checkpoint = await loadCheckpoint();
-    if (checkpoint) { post({ type: 'init', checkpoint }); showToast('Resumed saved ecosystem and fossil record.'); }
-    else post({ type: 'init' });
-  } catch { post({ type: 'init' }); }
-  setSpeed('observe'); post({ type: 'setThermalSafe', enabled: true });
+    if (checkpoint) {
+      post({ type: 'init', checkpoint });
+      showToast('Resumed saved ecosystem and fossil record.');
+    } else post({ type: 'init' });
+  } catch {
+    post({ type: 'init' });
+  }
+  setSpeed('observe');
+  post({ type: 'setThermalSafe', enabled: true });
 }
+
 void boot();
