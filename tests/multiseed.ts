@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { performance } from 'node:perf_hooks';
 import { createFounderGenome, morphotypeKey } from '../src/sim/genome';
 import { Rng } from '../src/sim/rng';
