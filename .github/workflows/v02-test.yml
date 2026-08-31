@@ -2,7 +2,7 @@ name: Test EvoSpore v0.2 branch
 
 on:
   push:
-    branches: [v0.2-fossil-record]
+    branches: [v0.2-fossil-record, v0.2-safari-save-fix]
   workflow_dispatch:
 
 permissions:
