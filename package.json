@@ -1,0 +1,18 @@
+{
+  "name": "evospore",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "test:burnin": "tsx tests/burnin.ts",
+    "build": "npm run typecheck && npm run test:burnin && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "tsx": "4.20.5",
+    "typescript": "5.8.3",
+    "vite": "7.1.3"
+  }
+}

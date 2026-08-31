@@ -1,0 +1,213 @@
+import type { SpeedMode } from '../protocol';
+import type { RngState } from './rng';
+
+export const WORLD_WIDTH = 1600;
+export const WORLD_HEIGHT = 1000;
+export const SIM_DT = 0.1;
+export const BRAIN_INTERVAL = 0.2;
+export const MAX_POPULATION = 650;
+
+export type PartType =
+  | 'mouth'
+  | 'flagellum'
+  | 'tail'
+  | 'fin'
+  | 'eye'
+  | 'chemo'
+  | 'spike'
+  | 'stinger';
+
+export type Side = -1 | 0 | 1;
+
+export interface PartGene {
+  type: PartType;
+  segment: number;
+  side: Side;
+  size: number;
+  angle: number;
+}
+
+export interface BrainGenome {
+  selfWeights: number[];
+  msgWeights: number[];
+  bias: number[];
+  typeEmbedding: number[];
+  readoutA: number[];
+  readoutB: number[];
+  plasticSelf: number[];
+  plasticMsg: number[];
+  learningRate: number;
+  eligibilityDecay: number;
+  fastDecay: number;
+  lamarckFraction: number;
+}
+
+export interface Genome {
+  vertebrae: number;
+  size: number;
+  flexibility: number;
+  diet: number;
+  basalEfficiency: number;
+  parts: PartGene[];
+  innovations: string[];
+  brain: BrainGenome;
+}
+
+export interface BrainCheckpoint {
+  hidden: number[];
+  fastSelf: number[];
+  fastMsg: number[];
+  eligibilitySelf: number[];
+  eligibilityMsg: number[];
+  pendingReward: number;
+  learnedMagnitude: number;
+}
+
+export interface CreatureCheckpoint {
+  id: number;
+  parentId: number | null;
+  generation: number;
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  angularVelocity: number;
+  health: number;
+  energy: number;
+  age: number;
+  children: number;
+  stingerCooldown: number;
+  thoughtAccumulator: number;
+  actionA: number[];
+  actionB: number[];
+  genome: Genome;
+  brain: BrainCheckpoint;
+}
+
+export interface Food {
+  id: number;
+  x: number;
+  y: number;
+  energy: number;
+  size: number;
+}
+
+export interface Carcass {
+  id: number;
+  x: number;
+  y: number;
+  energy: number;
+  age: number;
+  size: number;
+}
+
+export interface HistoricalEvent {
+  simTime: number;
+  type: 'innovation' | 'extinction' | 'milestone';
+  message: string;
+}
+
+export interface WorldCheckpoint {
+  version: 1;
+  simTime: number;
+  nextCreatureId: number;
+  nextFoodId: number;
+  nextCarcassId: number;
+  births: number;
+  deaths: number;
+  rng: RngState;
+  creatures: CreatureCheckpoint[];
+  food: Food[];
+  carcasses: Carcass[];
+  events: HistoricalEvent[];
+  selectedId: number | null;
+}
+
+export interface RenderPart {
+  type: PartType;
+  segment: number;
+  side: Side;
+  size: number;
+  angle: number;
+}
+
+export interface CreatureRenderState {
+  id: number;
+  parentId: number | null;
+  generation: number;
+  x: number;
+  y: number;
+  angle: number;
+  radius: number;
+  health: number;
+  energy: number;
+  age: number;
+  children: number;
+  vertebrae: number;
+  diet: number;
+  parts: RenderPart[];
+  innovations: string[];
+  plasticity: number;
+  lamarckFraction: number;
+  learnedMagnitude: number;
+}
+
+export interface FoodRenderState {
+  x: number;
+  y: number;
+  size: number;
+}
+
+export interface CarcassRenderState {
+  x: number;
+  y: number;
+  size: number;
+  energy: number;
+}
+
+export interface WorldStats {
+  population: number;
+  food: number;
+  carcasses: number;
+  births: number;
+  deaths: number;
+  maxGeneration: number;
+  morphotypes: number;
+  innovations: number;
+  simRate: number;
+  speedMode: SpeedMode;
+  thermalSafe: boolean;
+}
+
+export interface WorldSnapshot {
+  simTime: number;
+  creatures: CreatureRenderState[];
+  food: FoodRenderState[];
+  carcasses: CarcassRenderState[];
+  selected: CreatureRenderState | null;
+  stats: WorldStats;
+}
+
+export interface SensePacket {
+  energy: number;
+  health: number;
+  speedForward: number;
+  speedSide: number;
+  angularVelocity: number;
+  nearestFoodDistance: number;
+  nearestFoodBearing: number;
+  nearestFoodKind: number;
+  nearestCreatureDistance: number;
+  nearestCreatureBearing: number;
+  nearestCreatureSize: number;
+  nearestCarcassDistance: number;
+  nearestCarcassBearing: number;
+  chemoFoodX: number;
+  chemoFoodY: number;
+  chemoCreatureX: number;
+  chemoCreatureY: number;
+  boundaryDistance: number;
+  boundaryBearing: number;
+  stingerCharge: number;
+}
