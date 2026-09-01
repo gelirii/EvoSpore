@@ -1,4 +1,4 @@
-name: Test EvoSpore v0.3 life history
+name: Test EvoSpore v0.3 behaviour
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
       - .github/workflows/v03-life-history-test.yml
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch-test-commit:
+  behaviour:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,25 +20,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply v0.3 feature patch
-        run: python scripts/apply_v03_life_history_movement.py
-      - name: Correct worker value imports
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('src/worker.ts')
-          text = p.read_text()
-          text = text.replace("import type {\n", "import { MAX_CREATURE_AGE, SIM_DT } from './sim/types';\nimport type {\n", 1)
-          text = text.replace("  MAX_CREATURE_AGE,\n  SIM_DT,\n", "", 1)
-          p.write_text(text)
-          PY
       - run: npm install --no-audit --no-fund
-      - name: Run full build gate
-        run: npm run build
-      - name: Commit tested v0.3 features
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/sim/types.ts src/sim/brain.ts src/sim/world.ts src/worker.ts src/main.ts package.json package-lock.json README.md
-          git commit -m "Add v0.3 life histories and purposeful steering"
-          git push origin HEAD:v0.3-life-history-movement
+      - run: npm run typecheck
+      - name: Run v0.3 movement and life-history analysis
+        run: npx tsx tests/v03_behavior.ts
