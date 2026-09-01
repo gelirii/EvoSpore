@@ -21,7 +21,7 @@ if '  handedness: -1 | 1;\n' not in w:
 needle = '      angularVelocity: this.rng.gaussian(0, 0.18),\n      health: maxHealth(genome),\n'
 if needle not in w:
     raise SystemExit('makeCreature angular velocity marker not found')
-w = w.replace(needle, "      angularVelocity: this.rng.gaussian(0, 0.18),\n      // Randomized lateral frame removes arbitrary pond-wide left/right convention.\n      // Sensory lateral signs and steering output are mirrored together, so it does not encode a goal.\n      handedness: this.rng.chance(0.5) ? -1 : 1,\n      health: maxHealth(genome),\n", 1)
+w = w.replace(needle, "      angularVelocity: this.rng.gaussian(0, 0.18),\n      // Deterministic lateral frame removes arbitrary pond-wide left/right convention without consuming RNG draws.\n      // Sensory lateral signs and steering output are mirrored together, so it does not encode a goal.\n      handedness: id % 2 === 0 ? 1 : -1,\n      health: maxHealth(genome),\n", 1)
 # Sense returns: mirror all lateral quantities and bearings.
 w = w.replace('      speedSide,\n      angularVelocity: clamp(creature.angularVelocity / 2.5, -1, 1),', '      speedSide: speedSide * creature.handedness,\n      angularVelocity: clamp(creature.angularVelocity / 2.5, -1, 1) * creature.handedness,', 1)
 w = w.replace('      nearestFoodBearing,\n', '      nearestFoodBearing: wrapAngle(nearestFoodBearing * creature.handedness),\n', 1)
@@ -37,4 +37,4 @@ w = w.replace('      angle: c.angle, angularVelocity: c.angularVelocity, health:
 w = w.replace('        angularVelocity: c.angularVelocity,\n        health: c.health,', '        angularVelocity: c.angularVelocity,\n        handedness: c.handedness ?? (c.id % 2 === 0 ? 1 : -1),\n        health: c.health,', 1)
 p.write_text(w)
 
-print('lateral symmetry patch applied')
+print('lateral symmetry patch applied without RNG drift')
