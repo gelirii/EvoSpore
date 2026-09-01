@@ -1,4 +1,4 @@
-name: Test EvoSpore v0.3 symmetry
+name: Test EvoSpore v0.3 symmetry v2
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Apply lateral symmetry patch
+      - name: Apply RNG-neutral lateral symmetry patch
         run: python scripts/apply_v03_lateral_symmetry.py
       - run: npm install --no-audit --no-fund
       - run: npm run build
