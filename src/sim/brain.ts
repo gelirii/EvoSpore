@@ -65,6 +65,12 @@ function buildGraph(genome: Genome): GraphDefinition {
   genome.parts.forEach((part, i) => link(partNodeByIndex[i]!, 1 + part.segment));
   for (let i = 1; i < nodes.length; i++) link(0, i);
 
+  // Cheap sensorimotor reflex arcs: this does not encode what to chase or avoid.
+  // It only lets current eye/chemo state reach propulsion within the existing two message rounds.
+  const sensors = nodes.map((node, i) => ({ node, i })).filter(({ node }) => node.typeIndex === TYPE_INDEX.eye || node.typeIndex === TYPE_INDEX.chemo);
+  const motors = nodes.map((node, i) => ({ node, i })).filter(({ node }) => node.typeIndex === TYPE_INDEX.flagellum || node.typeIndex === TYPE_INDEX.tail || node.typeIndex === TYPE_INDEX.fin);
+  for (const sensor of sensors) for (const motor of motors) link(sensor.i, motor.i);
+
   return { nodes, partNodeByIndex };
 }
 
@@ -186,6 +192,16 @@ export class BrainRuntime {
       obs[1] = clamp(1 - sense.nearestCreatureDistance * 4, 0, 1);
       obs[2] = Math.sin(sense.nearestCreatureBearing);
       obs[3] = Math.cos(sense.nearestCreatureBearing);
+    } else if (node.typeIndex === TYPE_INDEX.flagellum || node.typeIndex === TYPE_INDEX.tail || node.typeIndex === TYPE_INDEX.fin) {
+      const part = this.genome.parts[node.partIndex]!;
+      obs[0] = clamp(sense.speedForward, -1, 1);
+      obs[1] = clamp(sense.speedSide, -1, 1);
+      obs[2] = clamp(sense.angularVelocity, -1, 1);
+      obs[3] = part.side;
+      obs[4] = Math.sin(part.angle);
+      obs[5] = Math.cos(part.angle);
+      obs[6] = clamp(sense.energy * 2 - 1, -1, 1);
+      obs[7] = clamp(1 - sense.boundaryDistance, 0, 1);
     } else if (node.typeIndex === TYPE_INDEX.spine) {
       obs[0] = clamp(sense.speedForward, -1, 1);
       obs[1] = clamp(sense.speedSide, -1, 1);

@@ -2,11 +2,13 @@
 
 EvoSpore is a browser-based artificial-life experiment inspired by the readability of *Spore*'s Cell Stage, but built around inheritance, ecological selection, body/brain co-evolution, lifetime learning, and Lamarckian controller inheritance.
 
-**v0.1** is deliberately small enough for an iPhone while already containing the complete evolutionary loop.
+**v0.3** keeps the mobile-first core loop while adding a fossil record, behavioural life histories, attributable predation/scavenging and less biased steering.
 
-## v0.1
+## Current capabilities
 
-- One persistent 2D pond with renewable food, carcasses, competition, predation and death.
+- One persistent 2D pond with renewable food, attributable carcasses, competition, predation, scavenging and death.
+- Per-creature life histories track travel, feeding sources, damage, confirmed kills and whether meat came from own kills, stolen kills or natural carrion.
+- Propulsion has a steering dead-zone, stronger angular damping and sensorimotor reflex links so persistent arbitrary spiralling is less attractive while targeting remains evolved/learned rather than scripted.
 - Steady-state asexual reproduction: **no global fitness score and no generational replacement**.
 - Founder body: two vertebrae, a mouth and flagellum.
 - Bodies can evolve from 2–8 vertebrae and mutate fins, tails, flagella, eyes, chemoreceptors and spikes.

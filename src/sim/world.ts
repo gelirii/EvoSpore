@@ -5,15 +5,19 @@ import { SpatialHash } from './spatial';
 import {
   BRAIN_INTERVAL,
   MAX_POPULATION,
+  MAX_CREATURE_AGE,
   SIM_DT,
   WORLD_HEIGHT,
   WORLD_WIDTH,
   type Carcass,
   type CreatureCheckpoint,
   type CreatureRenderState,
+  type DamageMethod,
+  type DeathCause,
   type Food,
   type Genome,
   type HistoricalEvent,
+  type LifeHistory,
   type PartGene,
   type SensePacket,
   type WorldCheckpoint,
@@ -35,6 +39,9 @@ interface Creature {
   energy: number;
   age: number;
   children: number;
+  history: LifeHistory;
+  lastDamagedBy: number | null;
+  lastDamageMethod: DamageMethod | null;
   stingerCooldown: number;
   thoughtAccumulator: number;
   actionA: number[];
@@ -45,7 +52,6 @@ interface Creature {
 
 const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
 const TAU = Math.PI * 2;
-const MAX_AGE = 1000;
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= TAU;
@@ -106,6 +112,24 @@ function distanceSquared(ax: number, ay: number, bx: number, by: number): number
   return dx * dx + dy * dy;
 }
 
+function emptyLifeHistory(): LifeHistory {
+  return {
+    distanceTravelled: 0, plantIntake: 0, meatIntake: 0, ownKillMeat: 0, stolenKillMeat: 0, carrionMeat: 0,
+    damageDealt: 0, damageTaken: 0, biteDamage: 0, stingerDamage: 0, spikeDamage: 0, attacksLanded: 0,
+    kills: 0, biteKills: 0, stingerKills: 0, spikeKills: 0, killCarcassEnergy: 0,
+  };
+}
+
+function cloneLifeHistory(history?: LifeHistory): LifeHistory {
+  return { ...emptyLifeHistory(), ...(history ?? {}) };
+}
+
+function steeringSignal(value: number): number {
+  const magnitude = Math.abs(value);
+  if (magnitude <= 0.12) return 0;
+  return Math.sign(value) * clamp((magnitude - 0.12) / 0.88, 0, 1);
+}
+
 export class World {
   simTime = 0;
   nextCreatureId = 1;
@@ -124,6 +148,7 @@ export class World {
   private readonly foodGrid = new SpatialHash<Food>(80, WORLD_WIDTH);
   private readonly carcassGrid = new SpatialHash<Carcass>(100, WORLD_WIDTH);
   private foodSpawnAccumulator = 0;
+  private retiredCreatures: CreatureCheckpoint[] = [];
 
   constructor(checkpoint?: WorldCheckpoint) {
     if (checkpoint) this.loadCheckpoint(checkpoint);
@@ -144,6 +169,7 @@ export class World {
     this.events = [];
     this.selectedId = null;
     this.foodSpawnAccumulator = 0;
+    this.retiredCreatures = [];
 
     const founder = createFounderGenome(this.rng);
     for (let i = 0; i < 140; i++) {
@@ -165,11 +191,14 @@ export class World {
       vx: this.rng.gaussian(0, 2),
       vy: this.rng.gaussian(0, 2),
       angle: this.rng.range(-Math.PI, Math.PI),
-      angularVelocity: 0,
+      angularVelocity: this.rng.gaussian(0, 0.18),
       health: maxHealth(genome),
       energy,
       age: 0,
       children: 0,
+      history: emptyLifeHistory(),
+      lastDamagedBy: null,
+      lastDamageMethod: null,
       stingerCooldown: 0,
       thoughtAccumulator: this.rng.range(0, BRAIN_INTERVAL),
       actionA: new Array(genome.parts.length).fill(0.5),
@@ -297,10 +326,12 @@ export class World {
     let actionCost = 0;
     const genome = creature.genome;
 
+    const startX = creature.x;
+    const startY = creature.y;
     for (let i = 0; i < genome.parts.length; i++) {
       const part = genome.parts[i]!;
       const a = clamp(creature.actionA[i] ?? 0, 0, 1);
-      const b = clamp(creature.actionB[i] ?? 0, -1, 1);
+      const b = steeringSignal(clamp(creature.actionB[i] ?? 0, -1, 1));
       if (part.type === 'flagellum') {
         thrust += a * part.size;
         torque += b * 0.75 * part.size;
@@ -311,7 +342,8 @@ export class World {
         actionCost += a * 0.15 * part.size;
       } else if (part.type === 'fin') {
         thrust += a * 0.24 * part.size;
-        torque += (part.side * a * 0.52 + b * 0.32) * part.size;
+        // Fin thrust no longer creates an automatic same-sign turn merely because the fin is on one side.
+        torque += b * 0.68 * part.size;
         actionCost += a * 0.075 * part.size;
       }
     }
@@ -323,7 +355,7 @@ export class World {
     creature.vx += Math.cos(creature.angle) * accel * SIM_DT;
     creature.vy += Math.sin(creature.angle) * accel * SIM_DT;
     creature.angularVelocity += (torque * 2.4 / mass) * SIM_DT;
-    creature.angularVelocity *= 0.91;
+    creature.angularVelocity *= 0.84;
     creature.angle = wrapAngle(creature.angle + creature.angularVelocity * SIM_DT);
 
     creature.vx *= drag;
@@ -336,6 +368,7 @@ export class World {
     }
     creature.x += creature.vx * SIM_DT;
     creature.y += creature.vy * SIM_DT;
+    creature.history.distanceTravelled += Math.hypot(creature.x - startX, creature.y - startY);
 
     const r = bodyRadius(genome);
     if (creature.x < r) { creature.x = r; creature.vx = Math.abs(creature.vx) * 0.55; }
@@ -350,6 +383,20 @@ export class World {
       partCount(genome, 'fin') * 0.012;
     const basal = (0.25 + genome.vertebrae * 0.026 + genome.parts.length * 0.009 + partMetabolic) / genome.basalEfficiency;
     creature.energy -= (basal + actionCost) * SIM_DT;
+  }
+
+  private registerDamage(attacker: Creature, target: Creature, damage: number, method: DamageMethod, rewardDivisor: number): void {
+    if (damage <= 0 || target.health <= 0) return;
+    target.health -= damage;
+    target.history.damageTaken += damage;
+    attacker.history.damageDealt += damage;
+    attacker.history.attacksLanded += 1;
+    if (method === 'bite') attacker.history.biteDamage += damage;
+    else if (method === 'stinger') attacker.history.stingerDamage += damage;
+    else attacker.history.spikeDamage += damage;
+    target.lastDamagedBy = attacker.id;
+    target.lastDamageMethod = method;
+    target.brain.reward(-clamp(damage / rewardDivisor, 0, method === 'stinger' ? 1.4 : 1));
   }
 
   private feedAndAttack(): void {
@@ -372,6 +419,7 @@ export class World {
       }
       if (bestFood && bestFoodD2 <= (mouthReach + bestFood.size) ** 2) {
         eatenFood.add(bestFood.id);
+        creature.history.plantIntake += bestFood.energy;
         const efficiency = 0.3 + 0.9 * (1 - creature.genome.diet);
         const gain = bestFood.energy * efficiency;
         creature.energy += gain;
@@ -391,6 +439,10 @@ export class World {
         if (best && bestD2 <= (mouthReach + best.size) ** 2) {
           const bite = Math.min(best.energy, 10 + mouth.size * 6);
           best.energy -= bite;
+          creature.history.meatIntake += bite;
+          if (best.killerId === creature.id) creature.history.ownKillMeat += bite;
+          else if (best.killerId != null) creature.history.stolenKillMeat += bite;
+          else creature.history.carrionMeat += bite;
           const efficiency = 0.22 + 0.92 * creature.genome.diet;
           const gain = bite * efficiency;
           creature.energy += gain;
@@ -414,9 +466,8 @@ export class World {
         const contact = mouthReach + bodyRadius(target.genome);
         if (targetD2 <= contact * contact) {
           const damage = (1.7 + 8.5 * creature.genome.diet) * mouth.size * biteAction * SIM_DT * 5;
-          target.health -= damage;
+          this.registerDamage(creature, target, damage, 'bite', 12);
           creature.energy -= 0.05 * biteAction;
-          target.brain.reward(-clamp(damage / 12, 0, 1));
         }
       }
 
@@ -427,8 +478,7 @@ export class World {
           const reach = 36 + 24 * p.size;
           if (targetD2 <= reach * reach) {
             const damage = 10 + 12 * p.size;
-            target.health -= damage;
-            target.brain.reward(-clamp(damage / 18, 0, 1.4));
+            this.registerDamage(creature, target, damage, 'stinger', 18);
             creature.stingerCooldown = 4.5 + 2 / Math.max(0.3, p.size);
             creature.energy -= 1.3 + p.size * 0.7;
             break;
@@ -437,17 +487,18 @@ export class World {
       }
     }
 
+    // Unique collision pairs, but spike retaliation is now evaluated in both directions.
     for (const a of this.creatures) {
-      const spikes = partCount(a.genome, 'spike');
-      if (spikes === 0 || a.health <= 0) continue;
-      const near = this.creatureGrid.nearby(a.x, a.y, bodyRadius(a.genome) + 40);
+      if (a.health <= 0) continue;
+      const near = this.creatureGrid.nearby(a.x, a.y, bodyRadius(a.genome) + 70);
       for (const b of near) {
         if (b.id <= a.id || b.health <= 0) continue;
         const contact = bodyRadius(a.genome) + bodyRadius(b.genome);
         if (distanceSquared(a.x, a.y, b.x, b.y) > contact * contact) continue;
-        const damage = spikes * 0.7 * SIM_DT;
-        b.health -= damage;
-        b.brain.reward(-damage * 0.08);
+        const spikesA = partCount(a.genome, 'spike');
+        const spikesB = partCount(b.genome, 'spike');
+        if (spikesA > 0) this.registerDamage(a, b, spikesA * 0.7 * SIM_DT, 'spike', 12.5);
+        if (spikesB > 0) this.registerDamage(b, a, spikesB * 0.7 * SIM_DT, 'spike', 12.5);
       }
     }
 
@@ -461,12 +512,27 @@ export class World {
     if (this.events.length > 500) this.events.splice(0, this.events.length - 500);
   }
 
+  private checkpointCreature(c: Creature): CreatureCheckpoint {
+    return {
+      id: c.id, parentId: c.parentId, generation: c.generation, x: c.x, y: c.y, vx: c.vx, vy: c.vy,
+      angle: c.angle, angularVelocity: c.angularVelocity, health: c.health, energy: c.energy, age: c.age,
+      children: c.children, history: cloneLifeHistory(c.history), lastDamagedBy: c.lastDamagedBy,
+      lastDamageMethod: c.lastDamageMethod, stingerCooldown: c.stingerCooldown, thoughtAccumulator: c.thoughtAccumulator,
+      actionA: [...c.actionA], actionB: [...c.actionB], genome: cloneGenome(c.genome), brain: c.brain.checkpoint(),
+    };
+  }
+
+  drainRetiredCreatures(): CreatureCheckpoint[] {
+    if (!this.retiredCreatures.length) return [];
+    return this.retiredCreatures.splice(0, this.retiredCreatures.length);
+  }
+
   private reproduceAndCull(): void {
     const newborns: Creature[] = [];
     for (const parent of this.creatures) {
       parent.age += SIM_DT;
       parent.stingerCooldown = Math.max(0, parent.stingerCooldown - SIM_DT);
-      if (parent.health <= 0 || parent.energy <= 0 || parent.age >= MAX_AGE) continue;
+      if (parent.health <= 0 || parent.energy <= 0 || parent.age >= MAX_CREATURE_AGE) continue;
 
       if (parent.age >= 18 && parent.energy >= 150 && this.creatures.length + newborns.length < MAX_POPULATION) {
         const childGenome = mutateGenome(parent.genome, parent.brain.fastSelf, parent.brain.fastMsg, this.rng);
@@ -489,25 +555,46 @@ export class World {
     }
     this.creatures.push(...newborns);
 
-    const survivors: Creature[] = [];
-    for (const creature of this.creatures) {
-      if (creature.health > 0 && creature.energy > 0 && creature.age < MAX_AGE) {
-        survivors.push(creature);
-        continue;
-      }
-      this.deaths++;
+    const dead = this.creatures.filter((c) => c.health <= 0 || c.energy <= 0 || c.age >= MAX_CREATURE_AGE);
+    const byId = new Map(this.creatures.map((c) => [c.id, c]));
+    const bodyEnergyById = new Map<number, number>();
+
+    for (const creature of dead) {
       const bodyEnergy = Math.max(9, creature.energy * 0.35 + creature.genome.vertebrae * 4.5 + creature.genome.parts.length * 1.7);
+      bodyEnergyById.set(creature.id, bodyEnergy);
+      let cause: DeathCause = 'unknown';
+      let killer: Creature | undefined;
+      if (creature.health <= 0) {
+        cause = creature.lastDamageMethod ?? 'unknown';
+        killer = creature.lastDamagedBy == null ? undefined : byId.get(creature.lastDamagedBy);
+      } else if (creature.energy <= 0) cause = 'starvation';
+      else if (creature.age >= MAX_CREATURE_AGE) cause = 'oldAge';
+
+      creature.history.deathCause = cause;
+      if (killer && killer.id !== creature.id) {
+        creature.history.killedBy = killer.id;
+        killer.history.kills += 1;
+        killer.history.killCarcassEnergy += bodyEnergy;
+        if (cause === 'bite') killer.history.biteKills += 1;
+        else if (cause === 'stinger') killer.history.stingerKills += 1;
+        else if (cause === 'spike') killer.history.spikeKills += 1;
+      }
+    }
+
+    const deadIds = new Set(dead.map((c) => c.id));
+    for (const creature of dead) {
+      this.deaths++;
+      const bodyEnergy = bodyEnergyById.get(creature.id)!;
+      const killerId = creature.history.killedBy ?? null;
+      this.retiredCreatures.push(this.checkpointCreature(creature));
       this.carcasses.push({
-        id: this.nextCarcassId++,
-        x: creature.x,
-        y: creature.y,
-        energy: bodyEnergy,
-        age: 0,
-        size: clamp(bodyRadius(creature.genome) * 0.45, 4, 15),
+        id: this.nextCarcassId++, x: creature.x, y: creature.y, energy: bodyEnergy, age: 0,
+        size: clamp(bodyRadius(creature.genome) * 0.45, 4, 15), sourceCreatureId: creature.id,
+        killerId, deathCause: creature.history.deathCause, killMethod: creature.history.deathCause === 'bite' || creature.history.deathCause === 'stinger' || creature.history.deathCause === 'spike' ? creature.history.deathCause : null,
       });
       if (this.selectedId === creature.id) this.selectedId = null;
     }
-    this.creatures = survivors;
+    this.creatures = this.creatures.filter((c) => !deadIds.has(c.id));
 
     for (const carcass of this.carcasses) {
       carcass.age += SIM_DT;
@@ -574,6 +661,7 @@ export class World {
       plasticity: averagePlasticity(creature.genome),
       lamarckFraction: creature.genome.brain.lamarckFraction,
       learnedMagnitude: creature.brain.learnedMagnitude,
+      history: cloneLifeHistory(creature.history),
     };
   }
 
@@ -616,27 +704,7 @@ export class World {
       births: this.births,
       deaths: this.deaths,
       rng: this.rng.snapshot(),
-      creatures: this.creatures.map((c): CreatureCheckpoint => ({
-        id: c.id,
-        parentId: c.parentId,
-        generation: c.generation,
-        x: c.x,
-        y: c.y,
-        vx: c.vx,
-        vy: c.vy,
-        angle: c.angle,
-        angularVelocity: c.angularVelocity,
-        health: c.health,
-        energy: c.energy,
-        age: c.age,
-        children: c.children,
-        stingerCooldown: c.stingerCooldown,
-        thoughtAccumulator: c.thoughtAccumulator,
-        actionA: [...c.actionA],
-        actionB: [...c.actionB],
-        genome: cloneGenome(c.genome),
-        brain: c.brain.checkpoint(),
-      })),
+      creatures: this.creatures.map((c) => this.checkpointCreature(c)),
       food: this.food.map((f) => ({ ...f })),
       carcasses: this.carcasses.map((c) => ({ ...c })),
       events: this.events.map((e) => ({ ...e })),
@@ -658,6 +726,7 @@ export class World {
     this.events = checkpoint.events.map((e) => ({ ...e }));
     this.selectedId = checkpoint.selectedId;
     this.foodSpawnAccumulator = 0;
+    this.retiredCreatures = [];
 
     this.creatures = checkpoint.creatures.map((c) => {
       const genome = cloneGenome(c.genome);
@@ -675,6 +744,9 @@ export class World {
         energy: c.energy,
         age: c.age,
         children: c.children,
+        history: cloneLifeHistory(c.history),
+        lastDamagedBy: c.lastDamagedBy ?? null,
+        lastDamageMethod: c.lastDamageMethod ?? null,
         stingerCooldown: c.stingerCooldown,
         thoughtAccumulator: c.thoughtAccumulator,
         actionA: [...c.actionA],

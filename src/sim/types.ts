@@ -6,6 +6,7 @@ export const WORLD_HEIGHT = 1000;
 export const SIM_DT = 0.1;
 export const BRAIN_INTERVAL = 0.2;
 export const MAX_POPULATION = 650;
+export const MAX_CREATURE_AGE = 1000;
 
 export type PartType =
   | 'mouth'
@@ -63,6 +64,31 @@ export interface BrainCheckpoint {
   learnedMagnitude: number;
 }
 
+export type DamageMethod = 'bite' | 'stinger' | 'spike';
+export type DeathCause = DamageMethod | 'starvation' | 'oldAge' | 'unknown';
+
+export interface LifeHistory {
+  distanceTravelled: number;
+  plantIntake: number;
+  meatIntake: number;
+  ownKillMeat: number;
+  stolenKillMeat: number;
+  carrionMeat: number;
+  damageDealt: number;
+  damageTaken: number;
+  biteDamage: number;
+  stingerDamage: number;
+  spikeDamage: number;
+  attacksLanded: number;
+  kills: number;
+  biteKills: number;
+  stingerKills: number;
+  spikeKills: number;
+  killCarcassEnergy: number;
+  deathCause?: DeathCause;
+  killedBy?: number;
+}
+
 export interface CreatureCheckpoint {
   id: number;
   parentId: number | null;
@@ -77,6 +103,9 @@ export interface CreatureCheckpoint {
   energy: number;
   age: number;
   children: number;
+  history?: LifeHistory;
+  lastDamagedBy?: number | null;
+  lastDamageMethod?: DamageMethod | null;
   stingerCooldown: number;
   thoughtAccumulator: number;
   actionA: number[];
@@ -89,6 +118,11 @@ export type FossilCategory =
   | 'highestGeneration'
   | 'oldest'
   | 'mostChildren'
+  | 'mostKills'
+  | 'mostMeatEaten'
+  | 'mostScavenged'
+  | 'mostStolenMeat'
+  | 'mostPlantEaten'
   | 'largestBody'
   | 'smallestBody'
   | 'mostVertebrae'
@@ -145,6 +179,7 @@ export interface FossilRecordSummary {
   lamarckFraction: number;
   partCounts: PartCounts;
   innovations: string[];
+  history: LifeHistory;
 }
 
 export interface Food {
@@ -162,6 +197,10 @@ export interface Carcass {
   energy: number;
   age: number;
   size: number;
+  sourceCreatureId?: number;
+  killerId?: number | null;
+  deathCause?: DeathCause;
+  killMethod?: DamageMethod | null;
 }
 
 export interface HistoricalEvent {
@@ -214,6 +253,7 @@ export interface CreatureRenderState {
   plasticity: number;
   lamarckFraction: number;
   learnedMagnitude: number;
+  history: LifeHistory;
 }
 
 export interface FoodRenderState {

@@ -10,7 +10,7 @@ if (!app) throw new Error('Missing #app');
 app.innerHTML = `
   <div class="app-shell">
     <header class="topbar">
-      <div class="brand"><strong>EvoSpore</strong><span>v0.2</span></div>
+      <div class="brand"><strong>EvoSpore</strong><span>v0.3</span></div>
       <div class="speed-group" role="group" aria-label="Simulation speed">
         <button data-speed="paused" type="button">Pause</button>
         <button data-speed="observe" type="button" class="active">1×</button>
@@ -152,6 +152,26 @@ function partSummary(creature: CreatureRenderState): string {
   return [...counts.entries()].map(([k, v]) => `${v}× ${k}`).join(' · ');
 }
 
+function feedingStyle(creature: CreatureRenderState): string {
+  const h = creature.history;
+  if (h.meatIntake < 1) return h.plantIntake >= 1 ? 'Plant feeder' : 'Too early to tell';
+  const ownShare = h.meatIntake > 0 ? h.ownKillMeat / h.meatIntake : 0;
+  const stolenShare = h.meatIntake > 0 ? h.stolenKillMeat / h.meatIntake : 0;
+  const carrionShare = h.meatIntake > 0 ? h.carrionMeat / h.meatIntake : 0;
+  if (h.kills > 0 && ownShare >= 0.45) return 'Active predator';
+  if (stolenShare >= 0.5) return 'Kill thief / kleptoparasite';
+  if (carrionShare >= 0.5) return h.kills > 0 ? 'Predator-scavenger' : 'Scavenger';
+  if (h.kills > 0) return 'Opportunistic predator';
+  return 'Opportunistic meat-eater';
+}
+
+function meatSourceSummary(creature: CreatureRenderState): string {
+  const h = creature.history;
+  if (h.meatIntake <= 0) return 'none yet';
+  const pct = (value: number) => Math.round(value / h.meatIntake * 100);
+  return `${pct(h.ownKillMeat)}% own kills · ${pct(h.stolenKillMeat)}% stolen kills · ${pct(h.carrionMeat)}% carrion`;
+}
+
 function updateInspector(creature: CreatureRenderState | null): void {
   if (!creature) { inspectorEl.classList.add('hidden'); inspectorEl.innerHTML = ''; return; }
   inspectorEl.classList.remove('hidden');
@@ -169,7 +189,16 @@ function updateInspector(creature: CreatureRenderState | null): void {
       <span>Plasticity</span><b>${creature.plasticity.toFixed(3)}</b>
       <span>Lamarck rate</span><b>${Math.round(creature.lamarckFraction * 100)}%</b>
       <span>Learned change</span><b>${creature.learnedMagnitude.toFixed(4)}</b>
+      <span>Behaviour</span><b>${feedingStyle(creature)}</b>
+      <span>Distance travelled</span><b>${creature.history.distanceTravelled.toFixed(0)}</b>
+      <span>Plant eaten</span><b>${creature.history.plantIntake.toFixed(1)}</b>
+      <span>Meat eaten</span><b>${creature.history.meatIntake.toFixed(1)}</b>
+      <span>Confirmed kills</span><b>${creature.history.kills}</b>
+      <span>Kill methods</span><b>${creature.history.biteKills} bite · ${creature.history.stingerKills} sting · ${creature.history.spikeKills} spike</b>
+      <span>Damage dealt / taken</span><b>${creature.history.damageDealt.toFixed(1)} / ${creature.history.damageTaken.toFixed(1)}</b>
     </div>
+    <div class="parts"><b>Meat sources:</b> ${meatSourceSummary(creature)}</div>
+    ${creature.history.kills > 0 ? `<div class="parts"><b>Own-kill recovery:</b> ${creature.history.killCarcassEnergy > 0 ? Math.round(creature.history.ownKillMeat / creature.history.killCarcassEnergy * 100) : 0}% of generated carcass biomass eaten by this killer</div>` : ''}
     <div class="parts">${partSummary(creature)}</div>
     ${creature.innovations.length ? `<div class="parts"><b>Innovations:</b> ${creature.innovations.join(', ')}</div>` : ''}`;
 }
@@ -177,6 +206,7 @@ function updateInspector(creature: CreatureRenderState | null): void {
 function fossilValue(fossil: FossilRecordSummary): string {
   if (fossil.key === 'mostCarnivorous' || fossil.key === 'mostHerbivorous' || fossil.key === 'mostLamarckian') return `${Math.round(fossil.displayValue * 100)}%`;
   if (fossil.key === 'largestBody' || fossil.key === 'smallestBody' || fossil.key === 'mostEfficient' || fossil.key === 'mostLearned') return fossil.displayValue.toFixed(3);
+  if (fossil.key === 'mostMeatEaten' || fossil.key === 'mostScavenged' || fossil.key === 'mostStolenMeat' || fossil.key === 'mostPlantEaten') return fossil.displayValue.toFixed(1);
   if (fossil.key === 'oldest') return `${fossil.displayValue.toFixed(1)} s`;
   return formatNumber(fossil.displayValue);
 }
@@ -195,7 +225,7 @@ function renderFossils(): void {
       <div class="fossil-card-head"><div><span class="fossil-title">${fossil.title}</span><h3>${fossil.name}</h3></div><strong>${fossilValue(fossil)}</strong></div>
       <p>${fossil.description}</p>
       <div class="fossil-meta">Creature #${fossil.id} · generation ${formatNumber(fossil.generation)} · recorded at ${formatSimTime(fossil.recordedAt)}</div>
-      <div class="fossil-stats">${fossil.vertebrae} vertebrae · ${fossil.totalParts} parts · ${Math.round(fossil.diet * 100)}% carnivory · ${Math.round(fossil.lamarckFraction * 100)}% Lamarck</div>
+      <div class="fossil-stats">${fossil.vertebrae} vertebrae · ${fossil.totalParts} parts · ${Math.round(fossil.diet * 100)}% carnivory · ${fossil.history.kills} kills · ${Math.round(fossil.lamarckFraction * 100)}% Lamarck</div>
       <div class="fossil-parts">${fossilParts(fossil)}</div>
       <button class="spawn-fossil" type="button" data-fossil="${fossil.key}">Spawn ${fossil.name}</button>
     </article>`).join('');

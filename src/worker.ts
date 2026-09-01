@@ -1,11 +1,13 @@
 /// <reference lib="webworker" />
 
 import type { MainToWorker, SpeedMode, WorkerToMain } from './protocol';
+import { MAX_CREATURE_AGE, SIM_DT } from './sim/types';
 import type {
   CreatureCheckpoint,
   FossilCategory,
   FossilRecordEntry,
   FossilRecordSummary,
+  LifeHistory,
   PartCounts,
   PartType,
   WorldCheckpoint,
@@ -30,7 +32,7 @@ let lastFossilSimTime = -Infinity;
 
 const fossilRecords = new Map<FossilCategory, FossilRecordEntry>();
 const FOSSIL_ORDER: FossilCategory[] = [
-  'highestGeneration', 'oldest', 'mostChildren', 'largestBody', 'smallestBody',
+  'highestGeneration', 'oldest', 'mostChildren', 'mostKills', 'mostMeatEaten', 'mostScavenged', 'mostStolenMeat', 'mostPlantEaten', 'largestBody', 'smallestBody',
   'mostVertebrae', 'mostParts', 'mostCarnivorous', 'mostHerbivorous', 'mostEfficient',
   'mostLamarckian', 'mostLearned', 'mostSpikes', 'mostStingers', 'mostEyes', 'mostFins',
 ];
@@ -39,11 +41,16 @@ const FOSSIL_META: Record<FossilCategory, { name: string; title: string; descrip
   highestGeneration: { name: 'The Lineage Crown', title: 'Deepest lineage', description: 'Furthest descendant from the original founders.' },
   oldest: { name: 'Methuselah', title: 'Longest lived', description: 'The longest-lived creature caught by the fossil record.' },
   mostChildren: { name: 'Genghis Worm', title: 'Most offspring', description: 'The most prolific individual ever recorded.' },
+  mostKills: { name: 'The Apex Predator', title: 'Most confirmed kills', description: 'Highest number of creatures personally killed.', positiveOnly: true },
+  mostMeatEaten: { name: 'The Meat Grinder', title: 'Most meat eaten', description: 'Largest lifetime intake of carcass biomass.', positiveOnly: true },
+  mostScavenged: { name: 'The Vulture', title: 'Most natural carrion eaten', description: 'Thrived on creatures that died without a killer.', positiveOnly: true },
+  mostStolenMeat: { name: 'The Lunch Thief', title: 'Most stolen kills eaten', description: 'Ate the most meat from creatures killed by somebody else.', positiveOnly: true },
+  mostPlantEaten: { name: 'The Salad Destroyer', title: 'Most plant food eaten', description: 'Largest lifetime intake of renewable pond food.', positiveOnly: true },
   largestBody: { name: 'The Leviathan', title: 'Largest body', description: 'Biggest body-size genome ever seen.' },
   smallestBody: { name: 'The Mini Menace', title: 'Smallest body', description: 'Smallest body-size genome ever seen.' },
   mostVertebrae: { name: 'The Spine Lord', title: 'Most vertebrae', description: 'Longest segmented body in the fossil record.' },
   mostParts: { name: 'Swiss Army Beast', title: 'Most body parts', description: 'Most anatomically loaded creature ever recorded.' },
-  mostCarnivorous: { name: 'The Apex Predator', title: 'Most carnivorous', description: 'Closest the pond has come to a pure meat-eater.' },
+  mostCarnivorous: { name: 'The Meat Fundamentalist', title: 'Most carnivorous genome', description: 'Closest the pond has come to a genetically pure meat specialist.' },
   mostHerbivorous: { name: 'The Salad Purist', title: 'Most herbivorous', description: 'Closest the pond has come to a pure plant specialist.' },
   mostEfficient: { name: 'The Miser Engine', title: 'Best basal efficiency', description: 'Most metabolically efficient genome ever recorded.' },
   mostLamarckian: { name: "Lamarck's Favourite", title: 'Highest inherited learning', description: 'Passed the greatest fraction of learned neural change onward.' },
@@ -63,12 +70,26 @@ function countParts(creature: CreatureCheckpoint): PartCounts {
   return counts;
 }
 
+function blankHistory(): LifeHistory {
+  return { distanceTravelled: 0, plantIntake: 0, meatIntake: 0, ownKillMeat: 0, stolenKillMeat: 0, carrionMeat: 0, damageDealt: 0, damageTaken: 0, biteDamage: 0, stingerDamage: 0, spikeDamage: 0, attacksLanded: 0, kills: 0, biteKills: 0, stingerKills: 0, spikeKills: 0, killCarcassEnergy: 0 };
+}
+
+function historyOf(creature: CreatureCheckpoint): LifeHistory {
+  return { ...blankHistory(), ...(creature.history ?? {}) };
+}
+
 function metric(creature: CreatureCheckpoint, key: FossilCategory): { score: number; displayValue: number } {
   const counts = countParts(creature);
+  const history = historyOf(creature);
   switch (key) {
     case 'highestGeneration': return { score: creature.generation, displayValue: creature.generation };
-    case 'oldest': return { score: creature.age, displayValue: creature.age };
+    case 'oldest': { const age = Math.min(creature.age, MAX_CREATURE_AGE - SIM_DT); return { score: age, displayValue: age }; }
     case 'mostChildren': return { score: creature.children, displayValue: creature.children };
+    case 'mostKills': return { score: history.kills, displayValue: history.kills };
+    case 'mostMeatEaten': return { score: history.meatIntake, displayValue: history.meatIntake };
+    case 'mostScavenged': return { score: history.carrionMeat, displayValue: history.carrionMeat };
+    case 'mostStolenMeat': return { score: history.stolenKillMeat, displayValue: history.stolenKillMeat };
+    case 'mostPlantEaten': return { score: history.plantIntake, displayValue: history.plantIntake };
     case 'largestBody': return { score: creature.genome.size, displayValue: creature.genome.size };
     case 'smallestBody': return { score: -creature.genome.size, displayValue: creature.genome.size };
     case 'mostVertebrae': return { score: creature.genome.vertebrae, displayValue: creature.genome.vertebrae };
@@ -85,26 +106,27 @@ function metric(creature: CreatureCheckpoint, key: FossilCategory): { score: num
   }
 }
 
-function considerFossils(checkpoint: WorldCheckpoint): void {
-  for (const creature of checkpoint.creatures) {
+function considerCreatures(creatures: CreatureCheckpoint[], recordedAt: number): void {
+  for (const creature of creatures) {
     for (const key of FOSSIL_ORDER) {
       const meta = FOSSIL_META[key];
       const m = metric(creature, key);
       if (meta.positiveOnly && m.displayValue <= 0) continue;
       const current = fossilRecords.get(key);
       if (current && m.score <= current.score) continue;
-      fossilRecords.set(key, {
-        key,
-        name: meta.name,
-        title: meta.title,
-        description: meta.description,
-        score: m.score,
-        displayValue: m.displayValue,
-        recordedAt: checkpoint.simTime,
-        creature: clone(creature),
-      });
+      fossilRecords.set(key, { key, name: meta.name, title: meta.title, description: meta.description, score: m.score, displayValue: m.displayValue, recordedAt, creature: clone(creature) });
     }
   }
+}
+
+function considerFossils(checkpoint: WorldCheckpoint): void {
+  considerCreatures(checkpoint.creatures, checkpoint.simTime);
+}
+
+function collectRetiredFossils(): void {
+  if (!world) return;
+  const retired = world.drainRetiredCreatures();
+  if (retired.length) considerCreatures(retired, world.simTime);
 }
 
 function sampleFossils(force = false): void {
@@ -143,6 +165,7 @@ function fossilSummaries(): FossilRecordSummary[] {
       lamarckFraction: creature.genome.brain.lamarckFraction,
       partCounts: countParts(creature),
       innovations: [...creature.genome.innovations],
+      history: historyOf(creature),
     }];
   });
 }
@@ -182,6 +205,9 @@ function spawnFossil(key: FossilCategory): void {
   revived.energy = 110;
   revived.age = 0;
   revived.children = 0;
+  revived.history = blankHistory();
+  revived.lastDamagedBy = null;
+  revived.lastDamageMethod = null;
   revived.stingerCooldown = 0;
   revived.thoughtAccumulator = 0;
   revived.actionA = new Array(revived.genome.parts.length).fill(0.5);
@@ -285,6 +311,7 @@ function loop(): void {
       }
     }
 
+    collectRetiredFossils();
     sampleFossils();
     flushEvents();
     const after = performance.now();
