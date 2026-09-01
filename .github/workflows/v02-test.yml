@@ -1,12 +1,12 @@
-name: Test EvoSpore v0.2 branch
+name: Test EvoSpore feature branch
 
 on:
   push:
-    branches: [v0.2-fossil-record, v0.2-safari-save-fix]
+    branches: [v0.2-fossil-record, v0.2-safari-save-fix, v0.3-life-history-movement]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -16,5 +16,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Apply pending v0.3 patch
+        if: github.ref_name == 'v0.3-life-history-movement'
+        run: python scripts/apply_v03_life_history_movement.py
       - run: npm install --no-audit --no-fund
       - run: npm run build
+      - name: Commit tested v0.3 patch
+        if: github.ref_name == 'v0.3-life-history-movement'
+        run: |
+          if ! git diff --quiet -- src/sim/types.ts src/sim/brain.ts src/sim/world.ts src/worker.ts src/main.ts package.json package-lock.json README.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add src/sim/types.ts src/sim/brain.ts src/sim/world.ts src/worker.ts src/main.ts package.json package-lock.json README.md
+            git commit -m "Add v0.3 life histories and purposeful steering"
+            git push origin HEAD:v0.3-life-history-movement
+          fi
