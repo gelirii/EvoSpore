@@ -99,6 +99,7 @@ export interface CreatureCheckpoint {
   vy: number;
   angle: number;
   angularVelocity: number;
+  handedness?: -1 | 1;
   health: number;
   energy: number;
   age: number;

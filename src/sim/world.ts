@@ -35,6 +35,7 @@ interface Creature {
   vy: number;
   angle: number;
   angularVelocity: number;
+  handedness: -1 | 1;
   health: number;
   energy: number;
   age: number;
@@ -192,6 +193,9 @@ export class World {
       vy: this.rng.gaussian(0, 2),
       angle: this.rng.range(-Math.PI, Math.PI),
       angularVelocity: this.rng.gaussian(0, 0.18),
+      // Deterministic lateral frame removes arbitrary pond-wide left/right convention without consuming RNG draws.
+      // Sensory lateral signs and steering output are mirrored together, so it does not encode a goal.
+      handedness: id % 2 === 0 ? 1 : -1,
       health: maxHealth(genome),
       energy,
       age: 0,
@@ -300,22 +304,22 @@ export class World {
       energy: clamp(creature.energy / 160, 0, 1.5),
       health: clamp(creature.health / maxHealth(creature.genome), 0, 1),
       speedForward,
-      speedSide,
-      angularVelocity: clamp(creature.angularVelocity / 2.5, -1, 1),
+      speedSide: speedSide * creature.handedness,
+      angularVelocity: clamp(creature.angularVelocity / 2.5, -1, 1) * creature.handedness,
       nearestFoodDistance,
-      nearestFoodBearing,
+      nearestFoodBearing: wrapAngle(nearestFoodBearing * creature.handedness),
       nearestFoodKind: 0,
       nearestCreatureDistance,
-      nearestCreatureBearing,
+      nearestCreatureBearing: wrapAngle(nearestCreatureBearing * creature.handedness),
       nearestCreatureSize,
       nearestCarcassDistance,
-      nearestCarcassBearing,
+      nearestCarcassBearing: wrapAngle(nearestCarcassBearing * creature.handedness),
       chemoFoodX: clamp(localizeX(chemoFoodWorldX, chemoFoodWorldY), -1, 1),
-      chemoFoodY: clamp(localizeY(chemoFoodWorldX, chemoFoodWorldY), -1, 1),
+      chemoFoodY: clamp(localizeY(chemoFoodWorldX, chemoFoodWorldY), -1, 1) * creature.handedness,
       chemoCreatureX: clamp(localizeX(chemoCreatureWorldX, chemoCreatureWorldY), -1, 1),
-      chemoCreatureY: clamp(localizeY(chemoCreatureWorldX, chemoCreatureWorldY), -1, 1),
+      chemoCreatureY: clamp(localizeY(chemoCreatureWorldX, chemoCreatureWorldY), -1, 1) * creature.handedness,
       boundaryDistance: clamp(nearestBoundary.d / 150, 0, 1),
-      boundaryBearing: wrapAngle(nearestBoundary.worldAngle - creature.angle),
+      boundaryBearing: wrapAngle((nearestBoundary.worldAngle - creature.angle) * creature.handedness),
       stingerCharge: creature.stingerCooldown <= 0 ? 1 : clamp(1 - creature.stingerCooldown / 5, 0, 1),
     };
   }
@@ -354,7 +358,7 @@ export class World {
     const accel = (thrust * 38) / mass;
     creature.vx += Math.cos(creature.angle) * accel * SIM_DT;
     creature.vy += Math.sin(creature.angle) * accel * SIM_DT;
-    creature.angularVelocity += (torque * 2.4 / mass) * SIM_DT;
+    creature.angularVelocity += (torque * creature.handedness * 2.4 / mass) * SIM_DT;
     creature.angularVelocity *= 0.84;
     creature.angle = wrapAngle(creature.angle + creature.angularVelocity * SIM_DT);
 
@@ -515,7 +519,7 @@ export class World {
   private checkpointCreature(c: Creature): CreatureCheckpoint {
     return {
       id: c.id, parentId: c.parentId, generation: c.generation, x: c.x, y: c.y, vx: c.vx, vy: c.vy,
-      angle: c.angle, angularVelocity: c.angularVelocity, health: c.health, energy: c.energy, age: c.age,
+      angle: c.angle, angularVelocity: c.angularVelocity, handedness: c.handedness, health: c.health, energy: c.energy, age: c.age,
       children: c.children, history: cloneLifeHistory(c.history), lastDamagedBy: c.lastDamagedBy,
       lastDamageMethod: c.lastDamageMethod, stingerCooldown: c.stingerCooldown, thoughtAccumulator: c.thoughtAccumulator,
       actionA: [...c.actionA], actionB: [...c.actionB], genome: cloneGenome(c.genome), brain: c.brain.checkpoint(),
@@ -740,6 +744,7 @@ export class World {
         vy: c.vy,
         angle: c.angle,
         angularVelocity: c.angularVelocity,
+        handedness: c.handedness ?? (c.id % 2 === 0 ? 1 : -1),
         health: c.health,
         energy: c.energy,
         age: c.age,
