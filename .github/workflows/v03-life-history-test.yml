@@ -1,0 +1,34 @@
+name: Test EvoSpore v0.3 life history
+
+on:
+  push:
+    branches:
+      - v0.3-life-history-movement
+    paths:
+      - .github/workflows/v03-life-history-test.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v0.3-life-history-movement
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Apply v0.3 feature patch
+        run: python scripts/apply_v03_life_history_movement.py
+      - run: npm install --no-audit --no-fund
+      - name: Run full build gate
+        run: npm run build
+      - name: Commit tested v0.3 features
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/sim/types.ts src/sim/brain.ts src/sim/world.ts src/worker.ts src/main.ts package.json package-lock.json README.md
+          git commit -m "Add v0.3 life histories and purposeful steering"
+          git push origin HEAD:v0.3-life-history-movement
