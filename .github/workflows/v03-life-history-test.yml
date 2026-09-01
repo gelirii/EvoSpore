@@ -1,4 +1,4 @@
-name: Test EvoSpore v0.3 behaviour
+name: Test EvoSpore v0.3 symmetry
 
 on:
   push:
@@ -8,10 +8,10 @@ on:
       - .github/workflows/v03-life-history-test.yml
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  behaviour:
+  symmetry:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,7 +20,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Apply lateral symmetry patch
+        run: python scripts/apply_v03_lateral_symmetry.py
       - run: npm install --no-audit --no-fund
-      - run: npm run typecheck
-      - name: Run v0.3 movement and life-history analysis
+      - run: npm run build
+      - name: Run movement and life-history analysis
         run: npx tsx tests/v03_behavior.ts
+      - name: Commit tested symmetry patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/sim/types.ts src/sim/world.ts
+          git commit -m "Remove pond-wide steering chirality"
+          git push origin HEAD:v0.3-life-history-movement
