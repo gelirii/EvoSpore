@@ -22,6 +22,16 @@ jobs:
           node-version: 22
       - name: Apply v0.3 feature patch
         run: python scripts/apply_v03_life_history_movement.py
+      - name: Correct worker value imports
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/worker.ts')
+          text = p.read_text()
+          text = text.replace("import type {\n", "import { MAX_CREATURE_AGE, SIM_DT } from './sim/types';\nimport type {\n", 1)
+          text = text.replace("  MAX_CREATURE_AGE,\n  SIM_DT,\n", "", 1)
+          p.write_text(text)
+          PY
       - run: npm install --no-audit --no-fund
       - name: Run full build gate
         run: npm run build
